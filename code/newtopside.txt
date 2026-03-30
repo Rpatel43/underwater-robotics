@@ -1,0 +1,59 @@
+// Top left joystick
+#define XJOY_PIN_FB A0 //positive X is forward, negative X is backward
+#define YJOY_PIN_LR A1 //positive Y is left movement, negative Y is right movement
+
+// Top right joystick
+#define XJOY_PIN_UD A2 //positive X is up, negative X is down
+#define YJOY_PIN_YAW A3 //positive Y is rotating left, negative Y is rotating right
+
+// Bottom left joystick
+#define XJOY_PIN_GRAB A4 //positive X is open claw, negative X is close claw
+#define YJOY_PIN_CLAW_SPIN A5 //positive Y is CW claw rotation, negative Y is CCW claw rotation
+
+#define LOOP_DELAY 10
+
+const int joystickPins[] = {XJOY_PIN_FB, YJOY_PIN_LR, XJOY_PIN_UD, YJOY_PIN_YAW, XJOY_PIN_GRAB, YJOY_PIN_CLAW_SPIN};
+int joystickValues[6];
+
+
+void setup() 
+{
+  Serial.begin(9600);
+}
+
+
+void loop() 
+{
+  readJoysticks();
+  transmitJoystickValues();
+  delay(LOOP_DELAY);
+}
+
+void readJoysticks() 
+{
+  for (int i = 0; i < 6; i++) 
+  {
+    int min_output = (i < 4) ? 1100 : 0;
+    int max_output = (i < 4) ? 1900 : 180;
+    joystickValues[i] = map(analogRead(joystickPins[i]), 0, 1023, min_output, max_output);
+  }
+}
+
+
+void transmitJoystickValues() 
+{
+  for (int i = 0; i < 6; i++) 
+  {
+    Serial.print(joystickValues[i]);
+    if (i < 5)
+    {
+      Serial.print(",");
+    }
+  }
+  Serial.println();
+}
+
+int mapJoystickValue(int joystick_input, int min_input, int max_input, int min_output, int max_output) 
+{
+  return map(joystick_input, min_input, max_input, min_output, max_output);
+}

@@ -1,0 +1,157 @@
+// Bottom-side Arduino Mega Code for Underwater Robot
+// - Receives joystick data from topside Arduino Uno via Serial1 (TX/RX pins)
+// - Controls 6 thrusters and 2 servos for movement and manipulation
+
+#include <Servo.h> // For controlling servo motors
+
+// Constants for thruster PWM output
+#define MIN_THRUSTER_VALUE 1100
+#define MAX_THRUSTER_VALUE 1900
+
+// Constants for servo behavior
+#define SERVO_MIN 0
+#define SERVO_CENTER 87
+#define SERVO_MAX 180
+#define SERVO_THRESHOLD 20  // Deadband to prevent unwanted servo motion
+#define MOVEMENT_STEP 8     // Servo step movement
+
+// Declare thruster servo objects
+Servo thruster1; // Front left
+Servo thruster2; // Front right
+Servo thruster3; // Back left
+Servo thruster4; // Back right
+Servo thruster5; // Top left
+Servo thruster6; // Top right
+
+// Declare manipulator servo objects
+Servo clawServo;
+Servo rotateServo;
+
+// Define pins for claw and rotation servos
+#define CLAW_SERVO_PIN 12  // moved to digital PWM pin
+#define ROTATE_SERVO_PIN 13  // moved to digital PWM pin
+
+// Initialize current positions for servos
+int claw_servo_position = SERVO_CENTER;
+int rotate_servo_position = SERVO_CENTER;
+
+void setup() {
+  thruster1.attach(3);
+  thruster2.attach(5);
+  thruster3.attach(6);
+  thruster4.attach(9);
+  thruster5.attach(10);
+  thruster6.attach(11);
+
+  clawServo.attach(CLAW_SERVO_PIN);
+  rotateServo.attach(ROTATE_SERVO_PIN);
+
+  Serial.begin(9600);
+  Serial1.begin(9600);
+
+  clawServo.write(SERVO_CENTER);
+  rotateServo.write(SERVO_CENTER);
+}
+
+int mapJoystickToThruster(int joystickValue) {
+  return constrain(joystickValue, MIN_THRUSTER_VALUE, MAX_THRUSTER_VALUE);
+}
+
+void controlHorizontalMovement(int xInput, int yInput) {
+  int xMapped = map(xInput, MIN_THRUSTER_VALUE, MAX_THRUSTER_VALUE, -400, 400);
+  int yMapped = map(yInput, MIN_THRUSTER_VALUE, MAX_THRUSTER_VALUE, -400, 400);
+
+  // Add deadband for small joystick noise
+  if (abs(xMapped) < 30) xMapped = 0;
+  if (abs(yMapped) < 30) yMapped = 0;
+
+  int power1 = mapJoystickToThruster(-xMapped + yMapped);
+  int power2 = mapJoystickToThruster(xMapped + yMapped);
+
+  thruster1.writeMicroseconds(power1);
+  thruster2.writeMicroseconds(power2);
+  thruster3.writeMicroseconds(power2);
+  thruster4.writeMicroseconds(power1);
+}
+
+void controlVerticalMovement(int zInput) {
+  int zPower = mapJoystickToThruster(zInput);
+  thruster5.writeMicroseconds(zPower);
+  thruster6.writeMicroseconds(zPower);
+}
+
+void controlYaw(int yawInput) {
+  int yawPower1 = mapJoystickToThruster(yawInput);
+  int yawPower2 = mapJoystickToThruster(-yawInput);
+  thruster1.writeMicroseconds(yawPower1);
+  thruster2.writeMicroseconds(yawPower2);
+  thruster3.writeMicroseconds(yawPower1);
+  thruster4.writeMicroseconds(yawPower2);
+}
+
+void controlManipulator(int clawInput, int rotateInput) {
+  // Do nothing if input is within deadband
+  if (abs(clawInput - SERVO_CENTER) > SERVO_THRESHOLD) {
+    if (clawInput > SERVO_CENTER) claw_servo_position -= MOVEMENT_STEP;
+    else claw_servo_position += MOVEMENT_STEP;
+  }
+
+  if (abs(rotateInput - SERVO_CENTER) > SERVO_THRESHOLD) {
+    if (rotateInput > SERVO_CENTER) rotate_servo_position += MOVEMENT_STEP;
+    else rotate_servo_position -= MOVEMENT_STEP;
+  }
+
+  claw_servo_position = constrain(claw_servo_position, SERVO_MIN, SERVO_MAX);
+  rotate_servo_position = constrain(rotate_servo_position, SERVO_MIN, SERVO_MAX);
+
+  clawServo.write(claw_servo_position);
+  rotateServo.write(rotate_servo_position);
+}
+
+void loop() {
+  static String buffer = "";
+  while (Serial1.available()) {
+    char c = Serial1.read();
+    if (c == '\n') {
+      buffer.trim();
+
+      // Check that buffer has exactly 5 commas
+      int commaCount = 0;
+      for (unsigned int i = 0; i < buffer.length(); i++) {
+        if (buffer.charAt(i) == ',') commaCount++;
+      }
+
+      if (commaCount == 5) {
+        int joy1X, joy1Y, joy2X, joy2Y, joy3X, joy3Y;
+        int parsed = sscanf(buffer.c_str(), "%d,%d,%d,%d,%d,%d",
+                            &joy1X, &joy1Y, &joy2X, &joy2Y, &joy3X, &joy3Y);
+
+        Serial.print("Raw buffer: ");
+        Serial.println(buffer);
+
+        if (parsed == 6) {
+          controlHorizontalMovement(joy1X, joy1Y);
+          controlVerticalMovement(joy2X);
+          controlYaw(joy2Y);
+          controlManipulator(joy3X, joy3Y);
+
+          Serial.print("Parsed: ");
+          Serial.print(joy1X); Serial.print(", ");
+          Serial.print(joy1Y); Serial.print(", ");
+          Serial.print(joy2X); Serial.print(", ");
+          Serial.print(joy2Y); Serial.print(", ");
+          Serial.print(joy3X); Serial.print(", ");
+          Serial.println(joy3Y);
+        } else {
+          Serial.println("Parse error!");
+        }
+      } else {
+        Serial.println("Bad format (wrong number of commas)");
+      }
+
+      buffer = "";
+    } else {
+      buffer += c;
+    }
+  }
+}

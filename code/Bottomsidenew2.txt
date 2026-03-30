@@ -1,0 +1,133 @@
+#include <Servo.h>
+
+// Thrusters setup
+#define MIN_THRUSTER_VALUE 1100
+#define MAX_THRUSTER_VALUE 1900
+
+// Manipulator setup
+#define SERVO_MIN 0
+#define SERVO_CENTER 87
+#define SERVO_MAX 180
+#define SERVO_THRESHOLD 80
+#define MOVEMENT_STEP 1
+
+// Thruster objects
+Servo thruster1; // Front left
+Servo thruster2; // Front right
+Servo thruster3; // Back left
+Servo thruster4; // Back right
+Servo thruster5; // Top left
+Servo thruster6; // Top right
+
+// Servo objects
+Servo clawServo;
+Servo rotateServo;
+
+#define CLAW_SERVO_PIN A0
+#define ROTATE_SERVO_PIN A1
+
+int claw_servo_position = SERVO_CENTER;
+int rotate_servo_position = SERVO_CENTER;
+
+void setup() {
+  // Attach thrusters
+  thruster1.attach(3);
+  thruster2.attach(5);
+  thruster3.attach(6);
+  thruster4.attach(9);
+  thruster5.attach(10);
+  thruster6.attach(11);
+
+  // Attach servos
+  clawServo.attach(CLAW_SERVO_PIN);
+  rotateServo.attach(ROTATE_SERVO_PIN);
+
+  // Initialize serial ports
+  Serial.begin(9600);      // Debug to computer
+  Serial1.begin(9600);     // Communication from topside Uno
+
+  // Center servos
+  clawServo.write(SERVO_CENTER);
+  rotateServo.write(SERVO_CENTER);
+}
+
+// Map joystick to thruster PWM
+int mapJoystickToThruster(int joystickValue) {
+  return constrain(joystickValue, MIN_THRUSTER_VALUE, MAX_THRUSTER_VALUE);
+}
+
+// Horizontal movement: forward/backward, left/right
+void controlHorizontalMovement(int xInput, int yInput) {
+  int xMapped = map(xInput, MIN_THRUSTER_VALUE, MAX_THRUSTER_VALUE, -400, 400);
+  int yMapped = map(yInput, MIN_THRUSTER_VALUE, MAX_THRUSTER_VALUE, -400, 400);
+
+  int power1 = mapJoystickToThruster(-xMapped + yMapped);
+  int power2 = mapJoystickToThruster(xMapped + yMapped);
+
+  thruster1.writeMicroseconds(power1);
+  thruster2.writeMicroseconds(power2);
+  thruster3.writeMicroseconds(power2);
+  thruster4.writeMicroseconds(power1);
+}
+
+// Vertical up/down via top thrusters
+void controlVerticalMovement(int zInput) {
+  int zPower = mapJoystickToThruster(zInput);
+  thruster5.writeMicroseconds(zPower);
+  thruster6.writeMicroseconds(zPower);
+}
+
+// Yaw control
+void controlYaw(int yawInput) {
+  int yawPower1 = mapJoystickToThruster(yawInput);
+  int yawPower2 = mapJoystickToThruster(-yawInput);
+
+  thruster1.writeMicroseconds(yawPower1);
+  thruster2.writeMicroseconds(yawPower2);
+  thruster3.writeMicroseconds(yawPower1);
+  thruster4.writeMicroseconds(yawPower2);
+}
+
+// Claw + Rotation servo control
+void controlManipulator(int clawInput, int rotateInput) {
+  if (clawInput > SERVO_CENTER + SERVO_THRESHOLD) {
+    claw_servo_position -= MOVEMENT_STEP;  // Open claw
+  } else if (clawInput < SERVO_CENTER - SERVO_THRESHOLD) {
+    claw_servo_position += MOVEMENT_STEP;  // Close claw
+  }
+
+  if (rotateInput > SERVO_CENTER + SERVO_THRESHOLD) {
+    rotate_servo_position += MOVEMENT_STEP;  // Rotate CW
+  } else if (rotateInput < SERVO_CENTER - SERVO_THRESHOLD) {
+    rotate_servo_position -= MOVEMENT_STEP;  // Rotate CCW
+  }
+
+  claw_servo_position = constrain(claw_servo_position, SERVO_MIN, SERVO_MAX);
+  rotate_servo_position = constrain(rotate_servo_position, SERVO_MIN, SERVO_MAX);
+
+  clawServo.write(claw_servo_position);
+  rotateServo.write(rotate_servo_position);
+}
+
+void loop() {
+  if (Serial1.available()) {
+    String input = Serial1.readStringUntil('\n');
+
+    int joy1X, joy1Y, joy2X, joy2Y, joy3X, joy3Y;
+    int parsed = sscanf(input.c_str(), "%d,%d,%d,%d,%d,%d",
+                        &joy1X, &joy1Y, &joy2X, &joy2Y, &joy3X, &joy3Y);
+
+    if (parsed == 6) {
+      controlHorizontalMovement(joy1X, joy1Y);
+      controlVerticalMovement(joy2X);
+      controlYaw(joy2Y);
+      controlManipulator(joy3X, joy3Y);
+
+      // Debug print
+      Serial.print("Received: ");
+      Serial.println(input);
+    } else {
+      Serial.println("Parse error!");
+    }
+  }
+}
